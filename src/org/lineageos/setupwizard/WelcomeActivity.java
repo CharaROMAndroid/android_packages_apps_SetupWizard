@@ -8,22 +8,43 @@ package org.lineageos.setupwizard;
 
 import static org.lineageos.setupwizard.SetupWizardApp.ACTION_EMERGENCY_DIAL;
 
+import android.content.ComponentName;
 import android.content.Intent;
-import android.os.Bundle;
+import android.graphics.Rect;
 import android.os.Build;
+import android.os.Bundle;
+import android.os.UserHandle;
+import android.util.Log;
+import android.view.GestureDetector;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
+
+import com.android.internal.accessibility.util.AccessibilityUtils;
 
 import com.google.android.setupcompat.template.FooterButtonStyleUtils;
 import com.google.android.setupcompat.util.SystemBarHelper;
+import com.google.android.setupdesign.gesture.ConsecutiveTapsGestureDetector;
 
 import org.lineageos.setupwizard.util.SetupWizardUtils;
+
+import java.util.concurrent.TimeUnit;
 
 public class WelcomeActivity extends SubBaseActivity {
 
     private static final String ACTION_ACCESSIBILITY_SETTINGS =
             "android.settings.ACCESSIBILITY_SETTINGS_FOR_SUW";
+
+    private ConsecutiveTapsGestureDetector mConsecutiveTapsGestureDetector;
+    private GestureDetector mGestureDetector;
+
+    private boolean volumeDownLongPress = false;
+    private boolean volumeUpLongPress = false;
 
     @Override
     protected void onStartSubactivity() {
@@ -32,12 +53,12 @@ public class WelcomeActivity extends SubBaseActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        onSetupStart();
         SystemBarHelper.setBackButtonVisible(getWindow(), false);
+        ImageView brandLogoView = findViewById(R.id.brand_logo);
+        FrameLayout page = findViewById(R.id.page);
         setNextText(R.string.start);
         Button startButton = findViewById(R.id.start);
         Button emergButton = findViewById(R.id.emerg_dialer);
-        Button skipButton = findViewById(R.id.skip);
         startButton.setOnClickListener(view -> onNextPressed());
         findViewById(R.id.launch_accessibility)
                 .setOnClickListener(
@@ -63,12 +84,84 @@ public class WelcomeActivity extends SubBaseActivity {
                     getString(R.string.os_name)));
         }
 
-        if (Build.TYPE.equals("eng")) {
-            skipButton.setVisibility(View.VISIBLE);
-            skipButton.setOnClickListener(v -> {
-                SetupWizardUtils.finishSetupWizard(WelcomeActivity.this);
-            });
+        if (Build.IS_DEBUGGABLE) {
+            mConsecutiveTapsGestureDetector = new ConsecutiveTapsGestureDetector(
+                    numOfConsecutiveTaps -> {
+                        if (numOfConsecutiveTaps == 4) {
+                            Toast.makeText(WelcomeActivity.this, R.string.skip_setupwizard,
+                                    Toast.LENGTH_LONG).show();
+                            SetupWizardUtils.finishSetupWizard(WelcomeActivity.this);
+                        }
+                    }, findViewById(R.id.setup_wizard_layout),
+                    (int) TimeUnit.SECONDS.toMillis(1));
         }
+        mGestureDetector = new GestureDetector(this,
+                new GestureDetector.SimpleOnGestureListener() {
+                    @Override
+                    public boolean onDown(MotionEvent e) {
+                        return true;
+                    }
+
+                    @Override
+                    public void onLongPress(MotionEvent e) {
+                        Rect viewRect = new Rect();
+                        int[] leftTop = new int[2];
+
+                        brandLogoView.getLocationOnScreen(leftTop);
+                        viewRect.set(leftTop[0], leftTop[1],
+                                leftTop[0] + brandLogoView.getWidth(),
+                                leftTop[1] + brandLogoView.getHeight());
+                        if (viewRect.contains((int) e.getX(), (int) e.getY())) {
+                            page.setVisibility(View.VISIBLE);
+                        }
+                    }
+                });
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+                volumeUpLongPress = true;
+            } else if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                volumeDownLongPress = true;
+            }
+            event.startTracking();
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyLongPress(int keyCode, KeyEvent event) {
+        if (volumeUpLongPress && volumeDownLongPress) {
+            boolean enabled = !AccessibilityUtils.getEnabledServicesFromSettings(this,
+                    UserHandle.myUserId()).isEmpty();
+            AccessibilityUtils.setAccessibilityServiceState(this,
+                    new ComponentName("org.calyxos.talkback",
+                            "com.google.android.marvin.talkback.TalkBackService"), !enabled);
+            return true;
+        }
+        return super.onKeyLongPress(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            volumeUpLongPress = false;
+        } else if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            volumeDownLongPress = false;
+        }
+        return super.onKeyUp(keyCode, event);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (Build.IS_DEBUGGABLE) {
+            mConsecutiveTapsGestureDetector.onTouchEvent(ev);
+        }
+        mGestureDetector.onTouchEvent(ev);
+        return super.dispatchTouchEvent(ev);
     }
 
     @Override
@@ -83,5 +176,18 @@ public class WelcomeActivity extends SubBaseActivity {
     @Override
     protected int getTitleResId() {
         return -1;
+    }
+
+    private void factoryResetAndShutdown() {
+        // com.android.settings.MasterClearConfirm.doMasterClear()
+        Intent intent = new Intent(Intent.ACTION_FACTORY_RESET);
+        intent.setPackage("android");
+        intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+        intent.putExtra(Intent.EXTRA_REASON, "SetupWizard");
+        intent.putExtra(Intent.EXTRA_WIPE_ESIMS, false);
+        // com.android.server.MasterClearReceiver
+        intent.putExtra("shutdown", true);
+        sendBroadcast(intent);
+        // Intent handling is asynchronous -- assume it will happen soon.
     }
 }
