@@ -58,7 +58,7 @@ public class LineageSettingsActivity extends BaseSetupWizardActivity {
                 privacyPolicy, policySummary);
         getGlifLayout().setDescriptionText(servicesFullDescription);
 
-        View metricsRow = findViewById(R.id.metrics);
+        /*View metricsRow = findViewById(R.id.metrics);
         metricsRow.setOnClickListener(mMetricsClickListener);
         metricsRow.requestFocus();
         String metricsHelpImproveLineage =
@@ -70,7 +70,7 @@ public class LineageSettingsActivity extends BaseSetupWizardActivity {
                 0, metricsHelpImproveLineage.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
         TextView metrics = findViewById(R.id.enable_metrics_summary);
         metrics.setText(metricsSpan);
-        mMetrics = findViewById(R.id.enable_metrics_checkbox);
+        mMetrics = findViewById(R.id.enable_metrics_checkbox);*/
 
         View navKeysRow = findViewById(R.id.nav_keys);
         navKeysRow.setOnClickListener(mNavKeysClickListener);
